@@ -172,7 +172,6 @@ try {
     }
 
     # 5. Export
-    $filesize = 0
     if ($OutputPath.EndsWith(".csv")) {
         $enrichedTickets | Export-Csv -Path $OutputPath -NoTypeInformation -Encoding UTF8
     }
