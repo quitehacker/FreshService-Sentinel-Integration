@@ -152,22 +152,41 @@ try {
     $tickets = Get-FreshserviceResource -Url $ticketUrl -Headers $fsHeaders
 
     if ($tickets.Count -eq 0) { Write-Host "No logs/tickets found in the last $LookbackMinutes minutes." -ForegroundColor Green; exit }
-
+    # 4. Enrich & Transform
+    Write-Host "Enriching $($tickets.Count) tickets..." -ForegroundColor Cyan
     $payloadSet = @()
     foreach ($t in $tickets) {
-        $payloadSet += [PSCustomObject]@{
-            TicketId       = $t.id
-            Subject        = $t.subject
-            Status         = "$($t.status)"
-            Priority       = "$($t.priority)"
-            CreatedAt      = $t.created_at
-            UpdatedAt      = $t.updated_at
-            AgentName      = if ($t.responder_id) { $agentLookup[$t.responder_id] } else { "Unassigned" }
-            GroupName      = if ($t.group_id) { $groupLookup[$t.group_id] } else { "Unassigned" }
-            RequesterName  = if ($t.requester) { "$($t.requester.first_name) $($t.requester.last_name)".Trim() } else { "Unknown" }
-            RequesterEmail = if ($t.requester) { $t.requester.email } else { "" }
-            TimeGenerated  = $t.updated_at
+        # 1. Start with a hash table of ALL properties
+        $orderedProps = [ordered]@{}
+        
+        # Add Standard Fields from Ticket Object
+        $t.PSObject.Properties | ForEach-Object {
+            if ($_.Name -ne "custom_fields" -and $_.Name -ne "tags") {
+                $orderedProps[$_.Name] = $_.Value
+            }
         }
+
+        # 2. Add Enrichment Fields (Resolved Names)
+        $orderedProps["AgentName"] = if ($t.responder_id) { $agentLookup[$t.responder_id] } else { "Unassigned" }
+        $orderedProps["GroupName"] = if ($t.group_id) { $groupLookup[$t.group_id] } else { "Unassigned" }
+        $orderedProps["RequesterName"] = if ($t.requester) { "$($t.requester.first_name) $($t.requester.last_name)".Trim() } else { "Unknown" }
+        $orderedProps["RequesterEmail"] = if ($t.requester) { $t.requester.email } else { "" }
+        $orderedProps["TimeGenerated"] = $t.updated_at # For Sentinel
+
+        # 3. Flatten Custom Fields (if any)
+        if ($t.custom_fields) {
+            $t.custom_fields.PSObject.Properties | ForEach-Object {
+                $orderedProps["Custom_$($_.Name)"] = $_.Value
+            }
+        }
+
+        # 4. Flatten Tags
+        if ($t.tags) {
+            $orderedProps["Tags"] = ($t.tags -join ", ")
+        }
+
+        # Convert to Object
+        $payloadSet += [PSCustomObject]$orderedProps
     }
     Write-Host "Prepared $($payloadSet.Count) records." -ForegroundColor Green
 
