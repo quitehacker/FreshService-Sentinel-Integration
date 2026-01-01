@@ -1,47 +1,59 @@
-# Freshservice Data Export
+# Freshservice to Sentinel Integration (DCR)
 
-This project contains a PowerShell script [`Get-FreshserviceData.ps1`](./Get-FreshserviceData.ps1) that fetches tickets from Freshservice, enriches them with **Agent** and **Group** names, and exports the data to a local JSON or CSV file.
+This project syncs Freshservice tickets to either a **Local File** (for testing/backup) or **Microsoft Sentinel** (via DCR Logs Ingestion API).
 
 ## Features
-- **Data Enrichment**: Automatically replaces IDs (like `responder_id`, `group_id`) with readable names (`AgentName`, `GroupName`).
-- **Includes Requester**: Fetches requester details (Name, Email) for each ticket.
-- **Incremental Fetch**: Supports a `LookbackMinutes` parameter to fetch only recently updated tickets.
-- **Local Export**: Saves the enriched data to your local machine for analysis.
+- **Dual Mode**:
+    - **Local Export**: Save enriched data to JSON/CSV.
+    - **Azure Ingestion**: Push data directly to a Log Analytics table via DCR.
+- **Enrichment**: Resolves Agent/Group IDs to names.
+- **Secure**: Uses Azure AD Service Principal authentication.
 
-## Prerequisites
--   **Freshservice Domain**: e.g., `yourcompany.freshservice.com`
--   **Freshservice API Key**: From Profile Settings in Freshservice.
+## Setup
+### 1. Azure Configuration (Ingestion Only)
+If you intend to send data to Sentinel, you **must** configure Azure resources first. See the [Azure DCR Setup Guide](./Azure_DCR_Setup_Guide.md).
+Required values:
+- `TenantId`, `ClientId`, `ClientSecret` (App Registration)
+- `DceEndpoint` (Data Collection Endpoint)
+- `DcrImmutableId` (Data Collection Rule)
+- `StreamName` (Table definition in DCR)
+
+### 2. Freshservice Configuration
+- `FreshserviceDomain`
+- `FreshserviceApiKey`
 
 ## Usage
 
-### Parameters
-| Parameter | Description | Required | Default |
-| :--- | :--- | :--- | :--- |
-| `FreshserviceDomain` | Your Freshservice domain URL base. | Yes | - |
-| `FreshserviceApiKey` | Your personal API Key. | Yes | - |
-| `OutputPath` | Full path for the output file (`.json` or `.csv`). | No | `.\FreshserviceTickets.json` |
-| `LookbackMinutes` | Fetch tickets updated in last N mins (0 for ALL). | No | `0` |
+### Mode 1: Local Test / Export (Recommended First Step)
+Use this to verify data before sending to Azure.
+Fetches tickets updated in the last `N` minutes (default 60) and saves to a file.
 
-### Example 1: Export to JSON (Default)
+**Command:**
 ```powershell
-.\Get-FreshserviceData.ps1 `
-    -FreshserviceDomain "mycompany.freshservice.com" `
+.\Sync-FreshserviceToSentinel.ps1 `
+    -FreshserviceDomain "yourcompany.freshservice.com" `
     -FreshserviceApiKey "YOUR_API_KEY" `
-    -OutputPath ".\MyTickets.json"
+    -OutputPath ".\FreshserviceData.json" `
+    -LookbackMinutes 5
 ```
+*Note: Azure parameters are NOT required for local export.*
 
-### Example 2: Export to CSV
-```powershell
-.\Get-FreshserviceData.ps1 `
-    -FreshserviceDomain "mycompany.freshservice.com" `
-    -FreshserviceApiKey "YOUR_API_KEY" `
-    -OutputPath ".\MyTickets.csv"
-```
+### Mode 2: Azure Sentinel Ingestion
+Use this for production automation.
 
-### Example 3: Fetch Recent Changes (Last Hour)
+**Command:**
 ```powershell
-.\Get-FreshserviceData.ps1 `
-    -FreshserviceDomain "mycompany.freshservice.com" `
+.\Sync-FreshserviceToSentinel.ps1 `
+    -FreshserviceDomain "yourcompany.freshservice.com" `
     -FreshserviceApiKey "YOUR_API_KEY" `
+    -TenantId "GUID" `
+    -ClientId "GUID" `
+    -ClientSecret "SECRET" `
+    -DceEndpoint "https://xyz.eastus-1.ingest.monitor.azure.com" `
+    -DcrImmutableId "dcr-..." `
+    -StreamName "Custom-FreshserviceTickets_CL" `
     -LookbackMinutes 60
 ```
+
+## Automation
+Schedule Mode 2 in an **Azure Automation Runbook** (Hybrid Worker or Cloud Job). Store secrets in Automation Variables/Credentials and pass them to the script parameters.
